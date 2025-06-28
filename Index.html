@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Crystalline Giant Boss Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #eee; display: flex; flex-direction: column; align-items: center; }
+    h1 { color: #4caf50; margin-top: 20px; }
+    .container { display: flex; flex-wrap: wrap; width: 100%; max-width: 1400px; margin-top: 20px; }
+    .panel { padding: 10px; flex: 1; min-width: 250px; overflow-y: auto; }
+    .middle { flex: 2; text-align: center; }
+    #oracleText { display: none; text-align:left; margin: 10px auto; margin-top: 10px; font-size: 14px; max-width: 300px; transition: all 0.3s ease; }
+    .status, .effects, .tokens { margin-top: 15px; }
+    .tokens-group { margin: 5px 0; padding: 5px; background: rgba(255,255,255,0.05); border-radius: 5px; }
+    button { margin: 3px; padding: 5px 10px; font-size: 14px; border: none; border-radius: 5px; cursor: pointer; }
+    button:hover { opacity: 0.8; }
+    .green { background: #4caf50; color: #121212; }
+    .red { background: #f44336; color: #fff; }
+    .yellow { background: #ffeb3b; color: #121212; }
+    .effect-card { background: rgba(255, 255, 255, 0.05); padding: 5px; margin: 5px 0; border-radius: 5px; transition: all 0.3s ease; }
+    .effect-card.disabled { opacity: 0.5; text-decoration: line-through; }
+    .keyword { display: inline-block; background: #4caf50; color: #121212; margin: 2px; padding: 2px 6px; border-radius: 4px; }
+    #logPanel { width: 95%; background: #1e1e1e; margin-top: 15px; padding: 10px; border-radius: 8px; max-height: 300px; overflow-y: auto; display: none; }
+    #nextTurnBtn { font-size: 18px; padding: 12px 24px; }
+  </style>
+</head>
+<body>
+  <h1>Crystalline Giant Boss Tracker</h1>
+  <div class="container">
+    <div class="panel">
+      <h3>Boss Status</h3>
+      <div>Life: <span id="life">40</span></div>
+      <button onclick="adjustLife(-1)" class="red">-1</button>
+      <button onclick="adjustLife(1)" class="green">+1</button>
+      <div>P/T: <span id="pt">3/3</span></div>
+      <button onclick="adjustPower(-1)" class="red">- Power</button>
+      <button onclick="adjustPower(1)" class="green">+ Power</button>
+      <button onclick="adjustToughness(-1)" class="red">- Toughness</button>
+      <button onclick="adjustToughness(1)" class="green">+ Toughness</button>
+      <button onclick="destroyGiant()" class="red">Destroy Giant</button>
+      <button onclick="wipeTokens()" class="red">Wipe Tokens Only</button>
+      <h4>Keyword Counters</h4>
+      <div id="keywords"></div>
+      <button onclick="addRandomKeyword()" class="yellow">Add Random Counter</button>
+      <div>Turn: <span id="turn">1</span></div>
+      <button id="nextTurnBtn" onclick="nextBossTurn()" class="green">Next Boss Turn</button>
+      <div style="margin-top: 10px; border-top: 1px solid #4caf50; padding-top: 10px;">
+        <h4>Game Controls</h4>
+        <button onclick="saveGame()" class="green">💾 Save Game</button>
+        <button onclick="loadGame()" class="yellow">♻️ Load Game</button>
+        <button onclick="clearSavedGame()" class="red">🗑️ Clear Saved Game</button>
+  <button onclick="resetGame()" class="red">Reset Game</button>
+
+      </div>
+    </div>
+
+    <div class="panel middle">
+
+<div id="bossTitle" style="font-size: 24px; margin-top: 10px;">💎 Crystalline Giant 💎</div>
+<button onclick="toggleOracleText()" class="yellow">Show/Hide Oracle Text</button>
+<div id="oracleText" style="display: none; text-align: left; margin: 10px auto; margin-top: 10px; font-size: 14px; max-width: 300px;">
+  <em>
+    At the beginning of combat on your turn, choose a counter at random that Crystalline Giant doesn’t have on it from among flying, first strike, deathtouch, hexproof, lifelink, menace, reach, trample, vigilance, and a +1/+1 counter. Put that counter on it.
+  </em>
+</div>
+      <div class="status" id="bossStatus">Status: Alive</div>
+      <div class="effects">
+        <h3>Active Effects</h3>
+        <div id="activeEffects"></div>
+      </div>
+      <div class="tokens">
+        <h3>Tokens</h3>
+        <div id="tokens"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Side Deck Log</h3>
+      <div id="log"></div>
+      <h4>Archive</h4>
+      <div id="archive"></div>
+    </div>
+  </div>
+
+  <button onclick="toggleLogPanel()">Show/Hide Game Log</button>
+  <button onclick="clearLog()">Clear Log</button>
+  <label><input type="checkbox" id="autoScroll" checked> Auto-Scroll</label>
+  <div id="logPanel"></div>
+
+  <script>
+
+let life = 40, turn = 1, keywords = [], activeEffects = [], archive = [], tokens = [], isDead = false, gameLogs = [], giantCounters = 0, basePower = 3, baseToughness = 3;
+let manualPowerAdjust = 0, manualToughnessAdjust = 0;
+let groupCounts = {};
+
+const keywordOptions = ["Flying", "First Strike", "Deathtouch", "Hexproof", "Lifelink", "Menace", "Reach", "Trample", "Vigilance", "+1/+1"];
+
+const sideDeck = [
+  { name: "Cyclonic Rift", text: "Return all nonland permanents you don't control to owners' hands.", oneShot: true },
+  { name: "In Garruk’s Wake", text: "Destroy all creatures and planeswalkers you don’t control.", oneShot: true },
+  { name: "Toxic Deluge", text: "All creatures get -X/-X until end of turn.", oneShot: true },
+  { name: "Farewell", text: "Choose any number: Exile all artifacts, creatures, enchantments, graveyards.", oneShot: true },
+  { name: "Merciless Eviction", text: "Choose one: Exile all artifacts, creatures, enchantments, or planeswalkers.", oneShot: true },
+  { name: "Eldrazi Conscription", text: "Enchant creature. +10/+10, trample, annihilator 2.", power: 10, toughness: 10, keywords: ["Trample"] },
+  { name: "Angelic Destiny", text: "Enchant creature. +4/+4, flying, first strike.", power: 4, toughness: 4, keywords: ["Flying", "First Strike"] },
+  { name: "Bear Umbra", text: "Enchant creature. +2/+2, vigilance.", power: 2, toughness: 2, keywords: ["Vigilance"] },
+  { name: "Unflinching Courage", text: "Enchant creature. +2/+2, trample, lifelink.", power: 2, toughness: 2, keywords: ["Trample", "Lifelink"] },
+  { name: "True Conviction", text: "Creatures you control have double strike and lifelink." },
+  { name: "Akroma’s Will", text: "Until end of turn, creatures you control gain flying, vigilance, double strike, lifelink, indestructible, protection from all colors.", oneShot: true },
+  { name: "Assemble the Legion", text: "At each upkeep, create increasing number of 1/1 red Soldier tokens.", token: { name: "Soldier", emoji: "🛡️", count: 1, basePower: 1, baseToughness: 1 } },
+  { name: "Awakening Zone", text: "At each upkeep, create a 0/1 Eldrazi Spawn token.", token: { name: "Spawn", emoji: "🌀", count: 1, basePower: 0, baseToughness: 1 } },
+  { name: "Verdant Force", text: "At each upkeep, create a 1/1 green Saproling token.", token: { name: "Saproling", emoji: "🌱", count: 1, basePower: 1, baseToughness: 1 } },
+  { name: "Cathars' Crusade", text: "Whenever a creature enters, put a +1/+1 counter on each creature you control." },
+  { name: "Doubling Season", text: "If an effect would create one or more tokens or counters, it creates twice that many instead." },
+  { name: "Anointed Procession", text: "If an effect would create one or more tokens, create twice that many instead." },
+  { name: "Eldrazi Monument", text: "Creatures you control get +1/+1, flying, indestructible." },
+  { name: "Growing Rites of Itlimoc", text: "When you have 4+ creatures, transforms to a land that adds green for each creature." },
+  { name: "Smothering Tithe", text: "Whenever an opponent draws a card, they may pay 2. If they don't, create a Treasure token." },
+  { name: "Rhystic Study", text: "Whenever an opponent casts a spell, you may draw a card unless that player pays 1." },
+  { name: "Painful Quandary", text: "Whenever an opponent casts a spell, they discard a card or lose 5 life." },
+  { name: "Syphon Mind", text: "Each opponent discards a card. You draw a card for each card discarded this way.", oneShot: true },
+  { name: "Mogis, God of Slaughter", text: "At each upkeep, each opponent sacrifices a creature or loses 2 life." }
+];
+
+function log(message) {
+  gameLogs.push("Turn " + turn + ": " + message);
+  updateLogPanel();
+}
+
+function updateLogPanel() {
+  const panel = document.getElementById('logPanel');
+  panel.innerHTML = gameLogs.join("<br>");
+  if (document.getElementById('autoScroll').checked) {
+    panel.scrollTop = panel.scrollHeight;
+  }
+}
+
+function getEffect(name) {
+  return activeEffects.find(e => e.name === name && !e.disabled);
+}
+
+function addToken(tokenData) {
+  let count = tokenData.count;
+  if (getEffect("Doubling Season") || getEffect("Anointed Procession")) count *= 2;
+
+  let baseP = tokenData.basePower;
+  let baseT = tokenData.baseToughness;
+
+  let buffP = 0;
+  let buffT = 0;
+  if (getEffect("Cathars' Crusade")) {
+    let extra = 1;
+    if (getEffect("Doubling Season")) extra *= 2;
+    buffP += extra;
+    buffT += extra;
+  }
+
+  let finalP = baseP + buffP;
+  let finalT = baseT + buffT;
+
+  let groupKey = `${tokenData.name}-${baseP}-${baseT}-${buffP}-${buffT}`;
+  if (!groupCounts[tokenData.name]) groupCounts[tokenData.name] = 1;
+
+  let group = tokens.find(t => t.key === groupKey);
+  if (!group) {
+    group = {
+      name: `${tokenData.name} (${groupCounts[tokenData.name]})`,
+      emoji: tokenData.emoji,
+      count: 0,
+      basePower: baseP,
+      baseToughness: baseT,
+      buffPower: buffP,
+      buffToughness: buffT,
+      pt: finalP,
+      toughness: finalT,
+      key: groupKey
+    };
+    tokens.push(group);
+    groupCounts[tokenData.name]++;
+  }
+  group.count += count;
+  log(`Created ${count} ${group.name} token(s).`);
+
+  if (getEffect("Cathars' Crusade")) {
+    let extra = 1;
+    if (getEffect("Doubling Season")) extra *= 2;
+    giantCounters += extra;
+    log(`Cathars' Crusade: Added ${extra} +1/+1 counters to Giant.`);
+  }
+  calculateStats();
+  updateDisplay();
+}
+
+function nextBossTurn() {
+  activeEffects = activeEffects.filter(e => {
+    if (e.oneShot) {
+      archive.push(e);
+      return false;
+    }
+    return true;
+  });
+
+  if (isDead) {
+    isDead = false;
+    basePower = 3;
+    baseToughness = 3;
+    log("Giant respawned with base stats.");
+  }
+  turn++;
+
+  let remainingKw = keywordOptions.filter(k => !keywords.includes(k));
+  if (remainingKw.length > 0) {
+    let randKw = remainingKw[Math.floor(Math.random() * remainingKw.length)];
+    keywords.push(randKw);
+    log(`Giant gained keyword: ${randKw}`);
+  }
+
+  let remainingCards = sideDeck.filter(c => !activeEffects.some(e => e.name === c.name) && !archive.some(e => e.name === c.name));
+  if (remainingCards.length > 0) {
+    let randCard = remainingCards[Math.floor(Math.random() * remainingCards.length)];
+    if (randCard.oneShot) {
+      activeEffects.unshift({ ...randCard, disabled: false, oneShot: true });
+      log(`Boss played one-shot: ${randCard.name} (active this turn only)`);
+    } else {
+      activeEffects.unshift({ ...randCard, disabled: false });
+      log(`Boss played: ${randCard.name}`);
+    }
+  }
+
+  activeEffects.forEach(e => {
+    if (!e.disabled && e.token) addToken(e.token);
+  });
+
+  calculateStats();
+  updateDisplay();
+}
+
+function destroyGiant() {
+  if (confirm("Do you want to wipe all tokens (as if board wipe)?")) {
+    tokens = [];
+    groupCounts = {};
+    log("All tokens wiped.");
+  } else {
+    log("Tokens kept after Giant destruction.");
+  }
+
+  activeEffects = activeEffects.filter(e => {
+    if (["Eldrazi Conscription", "Angelic Destiny", "Bear Umbra", "Unflinching Courage"].includes(e.name)) {
+      archive.push({ ...e, disabled: true });
+      log(`Aura archived: ${e.name}`);
+      return false;
+    }
+    if (e.power || e.toughness || (e.keywords && e.keywords.length > 0)) {
+      e.disabled = true;
+      log(`Aura/effect disabled: ${e.name}`);
+    }
+    return true;
+  });
+
+  basePower = 0;
+  baseToughness = 0;
+  giantCounters = 0;
+  manualPowerAdjust = 0;
+  manualToughnessAdjust = 0;
+  isDead = true;
+  log("Giant destroyed. Will respawn next boss turn.");
+  calculateStats();
+  updateDisplay();
+}
+
+function wipeTokens() {
+  tokens = [];
+  groupCounts = {};
+  log("All tokens wiped (Wipe Tokens Only button).");
+  updateDisplay();
+}
+
+function disableEffect(index) {
+  activeEffects[index].disabled = true;
+  archive.push({ ...activeEffects[index], disabled: true });
+  log(`Effect disabled and moved to archive: ${activeEffects[index].name}`);
+  activeEffects.splice(index, 1);
+  calculateStats();
+  updateDisplay();
+}
+
+function calculateStats() {
+  let p = basePower + giantCounters + manualPowerAdjust;
+  let t = baseToughness + giantCounters + manualToughnessAdjust;
+  activeEffects.forEach(e => {
+    if (e.disabled) return;
+    if (e.power) p += e.power;
+    if (e.toughness) t += e.toughness;
+  });
+  document.getElementById('pt').innerText = `${p}/${t}`;
+
+  const kwDiv = document.getElementById('keywords');
+  kwDiv.innerHTML = '';
+  let allKeywords = [...new Set(keywords.concat(activeEffects.flatMap(e => e.keywords || [])))];
+  allKeywords.forEach(kw => {
+    const span = document.createElement('span');
+    span.className = 'keyword';
+    span.textContent = kw;
+    kwDiv.appendChild(span);
+  });
+
+  tokens.forEach(tk => {
+    tk.pt = tk.basePower + tk.buffPower;
+    tk.toughness = tk.baseToughness + tk.buffToughness;
+  });
+}
+
+function updateDisplay() {
+  document.getElementById('life').innerText = life;
+  document.getElementById('turn').innerText = turn;
+  document.getElementById('bossStatus').innerText = isDead ? "Status: Dead" : "Status: Alive";
+
+  const effectsDiv = document.getElementById('activeEffects');
+  effectsDiv.innerHTML = '';
+  activeEffects.forEach((eff, index) => {
+    const cardDiv = document.createElement('div');
+    cardDiv.className = `effect-card ${eff.disabled ? 'disabled' : ''}`;
+    cardDiv.innerHTML = `<strong>${eff.name}</strong><button onclick="toggleText(${index})">Show</button><button onclick="disableEffect(${index})" class="red">Disable</button><div id="text-${index}" style="display:none;">${eff.text}</div>`;
+    effectsDiv.appendChild(cardDiv);
+  });
+
+  document.getElementById('archive').innerHTML = archive.map((e, index) => {
+    return `<div class="effect-card disabled">
+      <strong>${e.name}</strong>
+      <button onclick="toggleArchiveText(${index})">${e.showText ? "-" : "+"}</button>
+      <div id="archive-text-${index}" style="display:${e.showText ? 'block' : 'none'};">${e.text}</div>
+    </div>`;
+  }).join('');
+
+  const tokensDiv = document.getElementById('tokens');
+  tokensDiv.innerHTML = '';
+  tokens.forEach((t, idx) => {
+    tokensDiv.innerHTML += `<div class="tokens-group">${t.emoji} ${t.name}: ${t.count} tokens — Base: ${t.basePower}/${t.baseToughness} — Buff: +${t.buffPower}/+${t.buffToughness} — Total: ${t.pt}/${t.toughness} 
+      <button onclick="adjustTokenCount(${idx}, -1)" class="red">-1</button>
+      <button onclick="adjustTokenCount(${idx}, 1)" class="green">+1</button>
+      <button onclick="removeTokenGroup(${idx})" class="yellow">Remove Group</button>
+    </div>`;
+  });
+
+  updateLogPanel();
+}
+
+function adjustTokenCount(index, delta) {
+  tokens[index].count += delta;
+  if (tokens[index].count <= 0) tokens.splice(index, 1);
+  log(`Adjusted ${tokens[index]?.name || "token group"} count by ${delta}.`);
+  updateDisplay();
+}
+
+function removeTokenGroup(index) {
+  log(`Removed token group: ${tokens[index].name}.`);
+  tokens.splice(index, 1);
+  updateDisplay();
+}
+
+function toggleText(index) {
+  const div = document.getElementById(`text-${index}`);
+  div.style.display = div.style.display === "none" ? "block" : "none";
+}
+
+function toggleArchiveText(index) {
+  archive[index].showText = !archive[index].showText;
+  updateDisplay();
+}
+
+function toggleLogPanel() {
+  const panel = document.getElementById('logPanel');
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+}
+
+function clearLog() {
+  gameLogs = [];
+  updateLogPanel();
+}
+
+function adjustLife(amount) {
+  life += amount;
+  if (life <= 0) {
+    isDead = true;
+    log("Giant life reduced to 0. Tap Destroy Giant to finalize.");
+    alert("Giant defeated! Tap Destroy Giant to finalize.");
+  }
+  calculateStats();
+  updateDisplay();
+}
+
+function adjustPower(amount) {
+  manualPowerAdjust += amount;
+  log(`Adjusted manual Power by ${amount}.`);
+  calculateStats();
+  updateDisplay();
+}
+
+function adjustToughness(amount) {
+  manualToughnessAdjust += amount;
+  log(`Adjusted manual Toughness by ${amount}.`);
+  calculateStats();
+  updateDisplay();
+}
+
+function addRandomKeyword() {
+  let remaining = keywordOptions.filter(k => !keywords.includes(k));
+  if (remaining.length === 0) return;
+  let rand = remaining[Math.floor(Math.random() * remaining.length)];
+  keywords.push(rand);
+  log(`Manually added keyword: ${rand}`);
+  calculateStats();
+  updateDisplay();
+}
+
+function resetGame() {
+  life = 40;
+  turn = 1;
+  keywords = [];
+  activeEffects = [];
+  archive = [];
+  tokens = [];
+  isDead = false;
+  giantCounters = 0;
+  manualPowerAdjust = 0;
+  manualToughnessAdjust = 0;
+  basePower = 3;
+  baseToughness = 3;
+  groupCounts = {};
+  gameLogs = [];
+  calculateStats();
+  updateDisplay();
+}
+
+function saveGame() {
+  const gameState = {
+    life,
+    turn,
+    keywords,
+    activeEffects,
+    archive,
+    tokens,
+    isDead,
+    giantCounters,
+    manualPowerAdjust,
+    manualToughnessAdjust,
+    basePower,
+    baseToughness,
+    groupCounts,
+    gameLogs
+  };
+  localStorage.setItem('giantBossGameState', JSON.stringify(gameState));
+  log("Game saved to local storage.");
+  updateDisplay();
+}
+
+function loadGame() {
+  const saved = localStorage.getItem('giantBossGameState');
+  if (saved) {
+    const gameState = JSON.parse(saved);
+    life = gameState.life;
+    turn = gameState.turn;
+    keywords = gameState.keywords;
+    activeEffects = gameState.activeEffects;
+    archive = gameState.archive;
+    tokens = gameState.tokens;
+    isDead = gameState.isDead;
+    giantCounters = gameState.giantCounters;
+    manualPowerAdjust = gameState.manualPowerAdjust;
+    manualToughnessAdjust = gameState.manualToughnessAdjust;
+    basePower = gameState.basePower;
+    baseToughness = gameState.baseToughness;
+    groupCounts = gameState.groupCounts;
+    gameLogs = gameState.gameLogs;
+    log("Loaded game from local storage.");
+    calculateStats();
+    updateDisplay();
+  } else {
+    alert("No saved game found!");
+  }
+}
+
+function clearSavedGame() {
+  localStorage.removeItem('giantBossGameState');
+  log("Saved game data cleared.");
+  updateDisplay();
+}
+
+function toggleOracleText() {
+  const oracleDiv = document.getElementById("oracleText");
+  if (oracleDiv.style.display === "none") {
+    oracleDiv.style.display = "block";
+  } else {
+    oracleDiv.style.display = "none";
+  }
+}
+
+  </script>
+</body>
+</html>
