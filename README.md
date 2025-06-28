@@ -39,7 +39,7 @@ The included 25-card side deck features:
 ## 🗺️ Interface features
 
 - 💖 **Life and power/toughness tracking** (adjust manually as needed).
-- 💥 **Destroy Giant** button to simulate kill spells (e.g., Go for the Throat).
+- 💥 **Destroy Giant** button to simulate kill spells (e.g., Murder).
 - 🌀 **Wipe Tokens** button to clear only token creatures.
 - ✨ **Active Effects** panel to see buffs and auras.
 - 🗄️ **Archive** panel to track used or disabled effects (can expand/collapse text).
